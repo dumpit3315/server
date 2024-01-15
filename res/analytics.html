@@ -10,9 +10,20 @@
         </style>
     </head>
         <h1>Dumpit analytics</h1>
+        <div id="analytics-table">
+            
+        </div>
     <body>
         <script>
-            $.get("")
+            $.ajax("/analytics/statistics", {
+                data: JSON.stringify({
+                    
+                }),
+                contentType: "application/JSON",
+                type: "POST"
+            }).done((d) => {
+
+            })
         </script>
     </body>
 </html>
