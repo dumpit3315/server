@@ -102,7 +102,12 @@ io.on('connection', (socket) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
     if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
 
+    socket.broadcast.emit("bye");
     socket.disconnect(true);
+  })
+
+  socket.on("ping", (data) => {
+    socket.emit("pong")
   })
 });
 
