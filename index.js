@@ -100,9 +100,9 @@ io.on('connection', (socket) => {
 
   socket.on("bye", (data) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
-    if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
-
     socket.broadcast.emit("bye");
+
+    if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
     socket.disconnect(true);
   })
 
