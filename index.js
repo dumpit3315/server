@@ -76,12 +76,14 @@ io.on('connection', (socket) => {
   } else if (socket.recovered && socket.data.is_forward_pin) {
     token_map[socket.data.token] = socket;
   }
-
+  
   socket.on('disconnect', (r) => {  
     if (r === "client namespace disconnect") {      
         if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
+        io.to(socket.data.cur_room).send("bye")
         if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
     } else if (r === "server shutting down") {
+        io.send("bye")
         io.disconnectSockets(true);
     }
   });
@@ -100,7 +102,7 @@ io.on('connection', (socket) => {
 
   socket.on("bye", (data) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
-    socket.broadcast.emit("bye");
+    io.to(socket.data.cur_room).emit("bye");
 
     if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
     socket.disconnect(true);
@@ -108,6 +110,14 @@ io.on('connection', (socket) => {
 
   socket.on("ping", (data) => {
     socket.emit("pong")
+  })
+
+  socket.on("ping_remote", (data) => {
+    socket.broadcast.emit("ping_remote")
+  })
+
+  socket.on("pong_remote", (data) => {
+    socket.broadcast.emit("pong_remote")
   })
 });
 
