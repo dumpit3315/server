@@ -79,12 +79,15 @@ io.on('connection', (socket) => {
   
   socket.on('disconnect', (r) => {  
     if (r === "client namespace disconnect") {      
-        if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
-        io.to(socket.data.cur_room).send("bye")
-        if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
+        if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];        
+        
+        if (socket.data.cur_room !== undefined) {
+          io.to(socket.data.cur_room).send("bye");
+          setTimeout(() => io.to(socket.data.cur_room).disconnectSockets(true), 2000);
+        }
     } else if (r === "server shutting down") {
-        io.send("bye")
-        io.disconnectSockets(true);
+        io.send("bye");
+        setTimeout(() => io.disconnectSockets(true), 2000);
     }
   });
 
@@ -102,10 +105,12 @@ io.on('connection', (socket) => {
 
   socket.on("bye", (data) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
-    io.to(socket.data.cur_room).emit("bye");
 
-    if (socket.data.cur_room !== undefined) io.to(socket.data.cur_room).disconnectSockets(true);
-    socket.disconnect(true);
+    if (socket.data.cur_room !== undefined) {
+      io.to(socket.data.cur_room).emit("bye");
+      setTimeout(() => io.to(socket.data.cur_room).disconnectSockets(true), 2000);
+    }
+    setTimeout(() => socket.disconnect(true), 2000);
   })
 
   socket.on("ping", (data) => {
