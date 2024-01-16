@@ -113,7 +113,7 @@ io.on('connection', (socket) => {
       
       /* 2 - Process connect server */
       const reconnect_token_forward = crypto.randomBytes(16).toString("hex");
-      reconnect_map[reconnect_token_forward] = {forward: true, room: room_id, room_token: token};
+      reconnect_map[reconnect_token_forward] = {forward: true, room_id: room_id, room_token: token};
       
       token_map[token].join(`di-session-${room_id}`);    
       
