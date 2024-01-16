@@ -10,6 +10,9 @@ const { Server } = require("socket.io");
 const io = new Server(server, {path: "/dumpit_remote/", transports: ["websocket"], connectionStateRecovery: {maxDisconnectionDuration: 90000}, pingTimeout: 30000, pingInterval: 5000});
 const crypto = require("crypto");
 const AnalyticsModel = require("./dbAnalyticsModel")
+const sioAdmin = require("@socket.io/admin-ui")
+const bcryptjs = require("bcryptjs")
+app.set("view engine", "ejs")
 
 const knex = require("knex");
 const kDB = knex.knex(require("./dbConst"))
@@ -20,6 +23,40 @@ objection.Model.knex(kDB)
 /* -1- Dumpit Forward */
 
 var token_map = {}
+var reconnect_map = {}
+var rooms = []
+var rooms_info_map = {}
+var rooms_count_buffer = {}
+
+setInterval(async () => {  
+  try {
+    for (const room of rooms) {
+      const connected_sockets = await io.to(room).fetchSockets();
+
+      if (rooms_count_buffer[room] === connected_sockets.length) {
+        if (rooms_count_buffer[room] <= 1) {
+          io.to(room).emit("bye");
+          io.timeout(1500).to(room).disconnectSockets(true);                    
+
+          const room_index = rooms.indexOf(room);
+          if (room_index !== -1) {
+            rooms.splice(room, 1);
+          }
+
+          if (reconnect_map[rooms_info_map[room].reconnect_forward] !== undefined) delete reconnect_map[rooms_info_map[room].reconnect_forward];
+          if (reconnect_map[rooms_info_map[room].reconnect_client] !== undefined) delete reconnect_map[rooms_info_map[room].reconnect_client];
+
+          if (rooms_info_map[room] !== undefined) delete rooms_info_map[room];
+          if (rooms_count_buffer[room] !== undefined) delete rooms_count_buffer[room];
+        }
+      } else {
+        rooms_count_buffer[room] = connected_sockets.length;
+      }
+    }
+  } catch (e) {
+    console.trace(e);
+  }
+}, 5000)
 
 const characters ='abcdefghijklmnopqrstuvwxyz0123456789';
 
@@ -35,7 +72,7 @@ function doGenerateString(length) {
 
 io.on('connection', (socket) => {
   if (!socket.recovered || !socket.data.cur_room) {    
-    socket.emit("protocol", "dumpit")
+    socket.emit("protocol", "dumpit");
 
     socket.on('forward_request', (cb) => {        
       const token = doGenerateString(6);
@@ -44,36 +81,84 @@ io.on('connection', (socket) => {
 
       token_map[token] = socket;
       
-      socket.removeAllListeners('forward_request')
-      socket.removeAllListeners('forward_connect')
+      socket.removeAllListeners('forward_request');
+      socket.removeAllListeners('forward_connect');
+      socket.removeAllListeners('forward_reconect');
       return cb({error: null, token: token});    
     });
 
     socket.on('forward_connect', (token, cb) => {
       if (!token) return cb({error: "You must specify for an instance code."});
-      if (token_map[token] === undefined) return cb({error: "Instance code invalid"});    
+      if (token_map[token] === undefined) return cb({error: "The instance code you have entered is not valid."});    
 
-      const room_id = crypto.randomBytes(16).toString("hex");
+      const room_id = crypto.randomBytes(16).toString("hex");  
 
-      token_map[token].emit("forward_client_connected");
-      token_map[token].join(`di-session-${room_id}`);    
+      /* 1 - Process connect client */
+      const reconnect_token = crypto.randomBytes(16).toString("hex");
+      reconnect_map[reconnect_token] = {forward: false, room_id: room_id, room_token: token};
       
-      token_map[token].data.cur_room = `di-session-${room_id}`;
-      token_map[token].data.is_forward_server = true;
-      token_map[token].data.is_forward_pin = false;
+      socket.removeAllListeners('forward_request');
+      socket.removeAllListeners('forward_connect');
+      socket.removeAllListeners('forward_reconnect');
 
       socket.data.token = token;
-      socket.join(`di-session-${room_id}`);
+      socket.join(`di-session-${room_id}`);      
 
       socket.data.cur_room = `di-session-${room_id}`;
       socket.data.is_forward_server = false;
       socket.data.is_forward_pin = false;
+      socket.data.reconnect_token = reconnect_token;   
 
-      delete token_map[token];
+      cb({error: null, reconnect_token: reconnect_token});
+      
+      /* 2 - Process connect server */
+      const reconnect_token_forward = crypto.randomBytes(16).toString("hex");
+      reconnect_map[reconnect_token_forward] = {forward: true, room: room_id, room_token: token};
+      
+      token_map[token].join(`di-session-${room_id}`);    
+      
+      token_map[token].data.cur_room = `di-session-${room_id}`;
+      token_map[token].data.is_forward_server = true;
+      token_map[token].data.is_forward_pin = false;      
+      token_map[token].data.reconnect_token = reconnect_token_forward;
 
-      socket.removeAllListeners('forward_request')
-      socket.removeAllListeners('forward_connect')
-      return cb({error: null});    
+      token_map[token].emit("forward_client_connected", {reconnect_token: reconnect_token_forward});
+
+      rooms.push(`di-session-${room_id}`);
+      rooms_info_map[`di-session-${room_id}`] = {client: socket, forward: token_map[token], reconnect_forward: reconnect_token_forward, reconnect_client: reconnect_token};
+
+      delete token_map[token];      
+    })
+
+    socket.on('forward_reconnect', (token, cb) => {
+      if (reconnect_map[token] === undefined) return cb({error: "Invalid reconnect token"});
+
+      const reconnect_token = crypto.randomBytes(16).toString("hex");
+      reconnect_map[reconnect_token] = reconnect_map[token];
+
+      delete reconnect_map[token];      
+
+      if (reconnect_map[reconnect_token].forward) {
+        rooms_info_map[`di-session-${reconnect_map[reconnect_token].room_id}`].forward = socket;
+        rooms_info_map[`di-session-${reconnect_map[reconnect_token].room_id}`].reconnect_forward = reconnect_token;
+      } else {
+        rooms_info_map[`di-session-${reconnect_map[reconnect_token].room_id}`].client = socket;
+        rooms_info_map[`di-session-${reconnect_map[reconnect_token].room_id}`].reconnect_client = reconnect_token;
+      }
+
+      socket.removeAllListeners('forward_request');
+      socket.removeAllListeners('forward_connect');
+      socket.removeAllListeners('forward_reconect');
+
+      socket.data.token = reconnect_map[reconnect_token].room_token;
+      socket.join(`di-session-${reconnect_map[reconnect_token].room_id}`);
+
+      socket.data.cur_room = `di-session-${reconnect_map[reconnect_token].room_id}`;
+      socket.data.is_forward_server = reconnect_map[reconnect_token].forward;      
+      socket.data.is_forward_pin = false;
+      socket.data.reconnect_token = reconnect_token;       
+
+      cb({error: null, reconnect_token: reconnect_token});
     })
   } else if (socket.recovered && socket.data.is_forward_pin) {
     token_map[socket.data.token] = socket;
@@ -81,15 +166,10 @@ io.on('connection', (socket) => {
   
   socket.on('disconnect', (r) => {  
     if (r === "client namespace disconnect") {      
-        if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];        
-        
-        if (socket.data.cur_room !== undefined) {
-          io.to(socket.data.cur_room).send("bye");
-          setTimeout(() => io.to(socket.data.cur_room).disconnectSockets(true), 2000);
-        }
+        if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];                
     } else if (r === "server shutting down") {
         io.send("bye");
-        setTimeout(() => io.disconnectSockets(true), 2000);
+        io.disconnectSockets(true);
     }
   });
 
@@ -105,28 +185,53 @@ io.on('connection', (socket) => {
     if (socket.data.is_forward_server) socket.broadcast.emit("log", data);
   })
 
-  socket.on("bye", (data) => {
+  socket.on("bye", (data, cb) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
 
-    if (socket.data.cur_room !== undefined) {
-      io.to(socket.data.cur_room).emit("bye");
-      setTimeout(() => io.to(socket.data.cur_room).disconnectSockets(true), 2000);
-    }
-    setTimeout(() => socket.disconnect(true), 2000);
+    socket.broadcast.emit("bye");    
+    cb();
   })
 
   socket.on("ping", (data) => {
-    socket.emit("pong")
+    socket.emit("pong");
   })
 
   socket.on("ping_remote", (data) => {
-    socket.broadcast.emit("ping_remote")
+    socket.broadcast.emit("ping_remote");
   })
 
   socket.on("pong_remote", (data) => {
-    socket.broadcast.emit("pong_remote")
+    socket.broadcast.emit("pong_remote");
   })
 });
+
+const admin_randpass = crypto.randomBytes(16).toString("hex");
+const admin_randuser = crypto.randomBytes(16).toString("hex");
+
+sioAdmin.instrument(io, {
+  auth: {
+    type: "basic",
+    username: admin_randuser,
+    password: bcryptjs.hashSync(admin_randpass)
+  },
+  mode: "development"
+})
+
+app.get('/sio_admin', (req, res, next) => {
+  if (req.hostname !== "localhost") return next();
+  res.render("admin", {rand_user: admin_randuser, rand_pass: admin_randpass})
+})
+
+app.use('/sio_admin', (req, res, next) => {
+  if (req.hostname !== "localhost") return next();
+  return express.static('sio_admin')(req, res)
+})
+
+app.use('/sio/info', (req, res, next) => {
+  if (req.hostname !== "localhost") return next();
+  console.trace({token_map, reconnect_map, rooms, rooms_info_map, rooms_count_buffer});
+  res.json({reconnect_map, rooms, rooms_count_buffer});
+})
 
 /* -2- Dumpit Analytics */
 
