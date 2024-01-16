@@ -188,8 +188,10 @@ io.on('connection', (socket) => {
   socket.on("bye", (data, cb) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
 
-    socket.broadcast.emit("bye");    
-    cb();
+    socket.broadcast.emit("bye");        
+    socket.leave(socket.data.cur_room);
+
+    if (cb) cb();
   })
 
   socket.on("ping", (data) => {
