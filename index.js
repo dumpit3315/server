@@ -71,9 +71,9 @@ function doGenerateString(length) {
 }
 
 io.on('connection', (socket) => {
-  if (!socket.recovered || !socket.data.cur_room) {    
-    socket.emit("protocol", "dumpit");
-
+  socket.emit("protocol", "dumpit");
+  
+  if (!socket.recovered || !socket.data.cur_room) {        
     socket.on('forward_request', (cb) => {        
       const token = doGenerateString(6);
       socket.data.token = token;    
@@ -162,6 +162,17 @@ io.on('connection', (socket) => {
     })
   } else if (socket.recovered && socket.data.is_forward_pin) {
     token_map[socket.data.token] = socket;
+  } else if (socket.recovered && !socket.data.is_forward_pin) {
+    if (socket.data.is_forward_server) {
+      rooms_info_map[socket.data.cur_room].forward = socket;        
+    } else {
+      rooms_info_map[socket.data.cur_room].client = socket;        
+    }
+
+    socket.on('forward_reconnect', (token, cb) => {               
+      socket.removeAllListeners('forward_reconect');          
+      cb({error: null, reconnect_token: socket.data.reconnect_token});
+    })
   }
   
   socket.on('disconnect', (r) => {  
