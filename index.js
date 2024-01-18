@@ -187,8 +187,10 @@ io.on('connection', (socket) => {
   socket.on("bye", (data, cb) => {
     if (token_map[socket.data.token] !== undefined) delete token_map[socket.data.token];
 
-    socket.broadcast.emit("bye");        
-    socket.leave(socket.data.cur_room);
+    if (socket.data.cur_room) {
+      socket.broadcast.emit("bye");        
+      socket.leave(socket.data.cur_room);
+    }
 
     if (cb) cb();
   })
