@@ -194,8 +194,11 @@ io.on('connection', (socket) => {
     socket.broadcast.emit("data", data);
   })
 
-  socket.on("log", (data) => {
-    if (socket.data.is_forward_server) socket.broadcast.emit("log", data);
+  socket.on("log_req", (data) => {
+    if (socket.data.is_forward_server) {
+      socket.broadcast.emit("log", data.data);
+      socket.emit("log_ack", data.id);
+    }
   })
 
   socket.on("bye", (data, cb) => {
