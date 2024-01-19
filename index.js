@@ -86,7 +86,7 @@ io.on('connection', (socket) => {
     return cb({error: null, token: token});    
   });
 
-  socket.on('forward_connect', (token, cb) => {
+  socket.on('forward_connect', async (token, cb) => {
     if (!token) return cb({error: "You must specify for an instance code."});
     if (token_map[token] === undefined) return cb({error: "The instance code you have entered is not valid."});    
 
@@ -125,11 +125,12 @@ io.on('connection', (socket) => {
 
     rooms.push(`di-session-${room_id}`);
     rooms_info_map[`di-session-${room_id}`] = {client: socket, forward: token_map[token], reconnect_forward: reconnect_token_forward, reconnect_client: reconnect_token};
-
+    
     delete token_map[token];      
+    rooms_count_buffer[`di-session-${room_id}`] = (await io.to(`di-session-${room_id}`).fetchSockets()).length;
   })
 
-  socket.on('forward_reconnect', (token, cb) => {
+  socket.on('forward_reconnect', async (token, cb) => {
     if (reconnect_map[token] === undefined) return cb({error: "Invalid reconnect token"});
 
     const reconnect_token = crypto.randomBytes(16).toString("hex");
@@ -155,9 +156,10 @@ io.on('connection', (socket) => {
     socket.data.cur_room = `di-session-${reconnect_map[reconnect_token].room_id}`;
     socket.data.is_forward_server = reconnect_map[reconnect_token].forward;      
     socket.data.is_forward_pin = false;
-    socket.data.reconnect_token = reconnect_token;       
-
+    socket.data.reconnect_token = reconnect_token;      
+        
     cb({error: null, reconnect_token: reconnect_token});
+    rooms_count_buffer[`di-session-${reconnect_map[reconnect_token].room_id}`] = (await io.to(`di-session-${reconnect_map[reconnect_token].room_id}`).fetchSockets()).length;
   })    
   
   socket.on('disconnect', (r) => {  
