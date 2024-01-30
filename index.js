@@ -176,7 +176,7 @@ io.on('connection', (socket) => {
   })
   
   socket.on("command", (data) => {
-    socket.broadcast.emit("data", data);
+    socket.broadcast.emit("command", data);
   })
 
   socket.on("log_req", (data) => {
